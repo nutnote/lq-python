@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# _*_ coding: UTF-8 _*_
+# _*_ coding: utf-8 _*_
 
 import httplib
 import dns.resolver
@@ -8,12 +8,11 @@ import socket
 
 
 def is_ipv4(ip):
-    res = 200
     try:
         socket.inet_aton(ip)
+        return True
     except:
-        res = res - 200
-    return res
+        return False
 
 def get_domain_ip(domain, source_ip):
     with open('/opt/dns/dns.txt', 'a+') as fo:
@@ -29,13 +28,10 @@ def get_domain_ip(domain, source_ip):
                     dns_name = dns.resolver.query(qname = domain, source= source_ip)
                     for  i in  dns_name.response.answer:
                         for j in i.items:
-                            ip = str(j.address)
-                            if ip not in ip_lst:
+                            ip = str(j)
+                            if ip not in ip_lst and is_ipv4(ip):
                                 print ip,'is a new ip'
                                 ip_lst.append(ip)
-                        #        cur = fo.tell()
-                        #        fo.seek(cur)
-                        #        fo.write(j.address+' \n')
                     return ip_lst
                 else:
                     pass 
@@ -45,7 +41,8 @@ def get_domain_ip(domain, source_ip):
             dns_name = dns.resolver.query(qname = domain, source= source_ip)
             for  i in  dns_name.response.answer:
                 for j in i.items:
-                    if j.address not in ip_lst:
+                    ip = str(j)
+                    if ip not in ip_lst and is_ipv4(ip):
                         ip_lst.append(j.address)
             cur = fo.tell()
             fo.seek(cur)
@@ -56,18 +53,6 @@ def get_domain_ip(domain, source_ip):
                 fo.write(str(ip)+' ')
             fo.write(' ')
             return ip_lst
-
-
-#def get_nginx_code(ip, port, meth, url):
-#    try:
-#        conn = httplib.HTTPConnection(ip, port, timeout = 3)
-#        conn.request(meth, url)
-#        res = conn.getresponse()
-#        code_number  = res.status
-#    except:
-#        code_number = 502
-#    conn.close()
-#    return code_number
 
 
 if __name__== '__main__':
