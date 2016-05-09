@@ -43,6 +43,9 @@ def del_space_line(file):
             fo.write(lt)
 
 # dns解析, 结果为以列表形式返回该域名解析到的所有A记录的ip
+# dns.txt 文件初始为空, 或添加需解析的ip，并以空格结尾。
+# dns.txt 文件内容为: 域名开头, 后跟域名解析出的所有ip, 最后以空格结尾. 格式如下: 
+# '''domain x.x.x.x y.y.y.y ''' 
 def get_domain_ip(domain, source_ip):
     with open('/opt/dns/dns.txt', 'a+') as fo:
         st = fo.read()
@@ -132,8 +135,6 @@ if __name__== '__main__':
     print lst
 
 
-    # dns.txt 文件内容为: 域名开头, 后跟域名解析出的所有ip, 最后以空格结尾. 格式如下: 
-    # '''domain x.x.x.x y.y.y.y ''' 
     del_space_line('/opt/dns/dns.txt')
     for ip in lst:
         if method == 'GET' or method == 'get':
