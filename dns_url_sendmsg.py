@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
 # python version: 2.7.x
+# 问题描述: 针对上传和下载域名, 解析域名得到的域名的所有ip, 然后通过不同线路对解析出ip发起特定请求, 测试其可用性. 当不可用时发送短信告警.
 
 import dns.resolver
 import argparse
@@ -141,7 +142,6 @@ def send_message(local_ip, server_ip, domain,  file_dns, file_user):
                             conn.close()
                         except:
                             print 'send message error...'
-
 
 
 if __name__== '__main__':
