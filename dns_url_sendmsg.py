@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-#-*- coding:utf-8 -*-
+# -*- coding:utf-8 -*-
+# python version: 2.7.x
 
 import dns.resolver
 import argparse
@@ -7,9 +8,9 @@ import httplib
 import json
 import socket
 import fileinput
+import time
 
 
-# 判断是否为有效的ip
 def is_ipv4(ip):
     try:
         socket.inet_aton(ip)
@@ -17,18 +18,18 @@ def is_ipv4(ip):
     except:
         return False
 
-# 当等于给定的域名时, 将指定内容写入特定文件中
-def write_to_file(file, content, domain):
+def write_to_file(file, content, vendor, domain, resolver_ip):
     for line in fileinput.input(file, inplace=1):
-        st = str(line)
-        st = st.strip()
-        lst = st.split(' ')
-        if lst[0] == domain:
-            print line.rstrip(' \n'),content
+        lst = line.strip('\n')
+        dic = eval(lst)
+        if dic['domain'] == domain and dic['vendor'] == vendor and dic['resolver'] == resolver_ip:
+            dic['record'] = content
+            dt = json.dumps(dic,ensure_ascii=False)
+            line = dt+'\n'
+            print line
         else:
             print line
 
-# 删除指定文件的空行
 def del_space_line(file):
     result = list()
     with open(file, 'r') as fo:
@@ -42,53 +43,71 @@ def del_space_line(file):
         for lt in result:
             fo.write(lt)
 
-# dns解析, 结果为以列表形式返回该域名解析到的所有A记录的ip
-# dns.txt 文件初始为空, 或添加需解析的ip，并以空格结尾。
-# dns.txt 文件内容为: 域名开头, 后跟域名解析出的所有ip, 最后以空格结尾. 格式如下: 
-# '''domain x.x.x.x y.y.y.y ''' 
-def get_domain_ip(domain, source_ip):
-    with open('/opt/dns/dns.txt', 'a+') as fo:
+def get_domain_ip(file, domain, vendor, resolver_ip):
+    with open(file, 'a+') as fo:
         st = fo.read()
         if st:
-            fo.seek(0)
-            cont = fo.readlines()
-            for line in cont:
-                lst = list(line.split(' '))
-                do = lst[0]
-                if domain == do:
-                    ip_lst = lst[1:-1]
-                    dns_name = dns.resolver.query(qname = domain, source= source_ip)
-                    for  i in  dns_name.response.answer:
-                        for j in i.items:
-                            ip = str(j)
-                            if ip not in ip_lst and is_ipv4(str(ip)):
-                                print 'For this domain:', domain , ',',ip,'is a new ip'
-                                ip_lst.append(ip)
-                                write_to_file('/opt/dns/dns.txt', ip, domain)
-                    return ip_lst
-                else:
-                    pass
-                line = fo.readline()
+            if st.find(domain) > 0: 
+                fo.seek(0)
+                cont = fo.readlines()
+                for line in cont:
+                    nw = line.strip('\n')
+                    lst = eval(nw)
+                    do = lst['domain']
+                    ven = lst['vendor']
+                    resolver = lst['resolver']
+                    if domain == do and vendor == ven and resolver_ip == resolver:
+                        ip_lst = lst['record']
+                        dns_name = dns.resolver.query(qname = domain, source= resolver_ip)
+                        for  i in  dns_name.response.answer:
+                            for j in i.items:
+                                ip = str(j)
+                                if ip not in ip_lst and is_ipv4(str(ip)):
+                                    print 'For this domain:', domain , ',',ip,'is a new ip'
+                                    ip_lst.append(ip)
+                        write_to_file(file, ip_lst, ven, domain, resolver_ip)
+                        return ip_lst
+                    else:
+                       # TODO LIST
+                       pass
+                    line = fo.readline()
+            else:
+                dic = {}
+                ip_lst = []
+                dns_name = dns.resolver.query(qname = domain, source= resolver_ip)
+                for  i in  dns_name.response.answer:
+                    for j in i.items:
+                        j = str(j)
+                        if j not in ip_lst and is_ipv4(str(j)):
+                            ip_lst.append(j)
+                dic['vendor'] = vendor
+                dic['resolver'] = resolver_ip
+                dic['domain'] = domain
+                dic['record'] = ip_lst
+                cur = fo.tell()
+                fo.seek(cur)
+                fo.write(str(dic)+'\n') 
         else:
-            ip_lst = []
-            dns_name = dns.resolver.query(qname = domain, source= source_ip)
-            for  i in  dns_name.response.answer:
-                for j in i.items:
-                    j = str(j)
-                    if j not in ip_lst and is_ipv4(str(j)):
-                        ip_lst.append(j)
-            cur = fo.tell()
-            fo.seek(cur)
-            fo.write(domain+' ')
-            for ip in ip_lst:
-                fo.write(str(ip)+' ')
-            fo.write('\n')
-            return ip_lst
+            for vendor,resolver_ip in dic.iteritems():
+                dic = {}
+                ip_lst = []
+                dns_name = dns.resolver.query(qname = domain, source= resolver_ip)
+                for  i in  dns_name.response.answer:
+                    for j in i.items:
+                        j = str(j)
+                        if j not in ip_lst and is_ipv4(str(j)):
+                            ip_lst.append(j)
+                dic['vendor'] = vendor
+                dic['resolver'] = resolver_ip
+                dic['domain'] = domain
+                dic['record'] = ip_lst
+                cur = fo.tell()
+                fo.seek(cur)
+                fo.write(str(dic)+'\n')
 
-# 从本地的不同运营商向目标服务器的特定ip发起url请求
 def get_nginx_code(ip, port, meth, url, sip):
     try:
-        conn = httplib.HTTPConnection(host =ip, port = port, timeout = 5, source_address = sip)
+        conn = httplib.HTTPConnection(host =ip, port = port, timeout = 5, source_address = (sip, 0))
         conn.request(meth, url)
         res = conn.getresponse()
         code_number  = res.status
@@ -97,59 +116,79 @@ def get_nginx_code(ip, port, meth, url, sip):
     conn.close()
     return code_number
 
-# 短信接口, 用来发送告警信息
-def send_message(local_ip, server_ip):
-    with open('/opt/dns/user_info.txt', 'r') as fo:
-        lst = json.load(fo) 
-        header = {'Content-type': 'application/json'}
-        for i in lst:
-            try:
-                conn = httplib.HTTPConnection('x.x.x.x', post)
-                mess = 'Local ip: ' + local_ip + ' connect server ip: '+  server_ip + ' is unavailable.'
-                i['message'] = mess 
-                params = json.dumps(i)
-                conn.request('POST', '/api/', params, header)
-                res = conn.getresponse()
-                print mess , i['phone_number'], 'send message status:' ,res.reason 
-                conn.close()
-            except:
-                pass
+def send_message(local_ip, server_ip, domain,  file_dns, file_user):
+    with open(file_dns, 'r') as dns_info:
+        cont = dns_info.readlines()
+        for line in cont:
+            lst = eval(line.strip('\n'))
+            do = lst['domain']
+            ven = lst['vendor']
+            resolver = lst['resolver']
+            ip_list = lst['record']
+            if server_ip in ip_list and do == domain:
+                with open(file_user, 'r') as user_info:
+                    user = json.load(user_info)
+                    header = {'Content-type': 'application/json'}
+                    for i in user:
+                        try:
+                            conn = httplib.HTTPConnection('message_ip', port)
+                            mess = '发起方: ' + socket.gethostname() + ', 线路: ' + ven + " " + do + ', 目的地: '+  server_ip + ' is unavailable. Please oncall OP...'
+                            i['message'] = mess
+                            params = json.dumps(i)
+                            conn.request('POST', '/api/xxxxxx/yyyyy', params, header)
+                            res = conn.getresponse()
+                            print mess , i['phone_number'], 'send message status:' ,res.reason
+                            conn.close()
+                        except:
+                            print 'send message error...'
 
 
 
 if __name__== '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--domain', action="store", help="enter your domain")
-    parser.add_argument('--method', action="store" , help="nginx method")
-    options = parser.parse_args()
-    domain = options.domain
-    method = options.method
-   
-    # t.t.t.t: 表示为本机电信ip; u.u.u.u: 表示本机联通ip; m.m.m.m: 表示本地移动ip
-    dns_sip = ['t.t.t.t', 'u.u.u.u', 'm.m.m.m']
-    ngx_sip = [('t.t.t.t', 0), ('u.u.u.u', 0), ('m.m.m.m', 0)]
-    lst= []
-    for source_ip in dns_sip:
-        lst = get_domain_ip(domain, source_ip)
-        lst.extend(lst)
-    print lst
+    dns_sip = {'电信': 'x.x.x.x','联通': 'y.y.y.y', '移动': 'z.z.z.z'}
+#    ngx_url = {'domain1': 'url1', 'domain2': 'url2', 'domain3': 'url3'}
+    ngx_url = [{'download_domain': {'method': 'GET', 'url': '/xxx'}}, {'upload_domain': {'method': 'POST', 'url': '/yyy'}}]
 
-
-    del_space_line('/opt/dns/dns.txt')
-    for ip in lst:
-        if method == 'GET' or method == 'get':
-            method = method.upper()
-            url = '/1.png'
-            for sip in ngx_sip:
-                if get_nginx_code(ip, 80, method, url, sip) != 200:
-                    send_message(sip[0], ip)
-           #     print 'Local ip:', sip[0], method , 'Server: ' ,ip , get_nginx_code(ip, 80, method, url, sip)
-        elif method == 'POST' or method == 'post':
-            method = method.upper()
-            url = '/mkblk/'
-            for sip in ngx_sip:
-                if get_nginx_code(ip, 80, method, url, sip) != 401:
-                    send_message(sip[0], ip)
-               # print 'Local ip:', sip[0], method , 'Server: ' ,ip , get_nginx_code(ip, 80, method, url, sip)
-        else:
-            print("Invalid method")
+    for nx in ngx_url:
+        dom = [key for key, _ in nx.iteritems()]
+        domain = dom[0]
+        for _, url_met in nx.iteritems():
+            for key, value in url_met.iteritems():
+                if 'url' == key:
+                    url = value
+                elif 'method' == key:
+                    method = value
+        for vendor, resolver_ip  in dns_sip.iteritems():
+            get_domain_ip('/opt/dns/dns.txt', domain, vendor, resolver_ip)
+            del_space_line('/opt/dns/dns.txt')
+    
+    with open('/opt/dns/dns.txt', 'r') as dns_info: 
+        cont = dns_info.readlines()
+        for line in cont:
+            lst = eval(line.strip('\n'))
+            do = lst['domain']
+            ven = lst['vendor']
+            resolver = lst['resolver']
+            all_ip_list = lst['record']
+            for ip in all_ip_list:
+                sip = dns_sip[ven]
+                for nx in ngx_url:
+                    dom = [key for key, _ in nx.iteritems()]
+                    domain = dom[0]
+                    for _, url_met in nx.iteritems():
+                        for key, value in url_met.iteritems():
+                            if 'url' == key:
+                                url = value
+                            elif 'method' == key:
+                                method = value
+                   # if do == domain:
+                   #     print 'Local ip:', sip, 'domain: ', domain , method,  url  , 'Server: ' ,ip , get_nginx_code(ip, 80, method, url, sip)
+                    if do == domain:
+                        if domain == 'nb-gate-io.qiniu.com' and get_nginx_code(ip, 80, method, url, sip) != 200:
+                            send_message(sip, ip, domain, '/opt/dns/dns.txt', '/opt/dns/user_info.txt')
+                        else:
+                            print time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())), '服务端IP: ', ip, ' Service is ok.'
+                        if domain == 'nb-gate-up.qiniu.com' and get_nginx_code(ip, 80, method, url, sip) != 401:
+                            send_message(sip, ip, domain, '/opt/dns/dns.txt', '/opt/dns/user_info.txt')
+                        else:
+                            print time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())), '服务端IP: ', ip, ' Service is ok.'
